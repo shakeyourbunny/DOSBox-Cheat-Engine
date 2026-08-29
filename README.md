@@ -61,7 +61,7 @@ If you want to build the standalone executables yourself:
 **For Windows / macOS / Older Linux:**
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --noconsole app.py
+pyinstaller --onefile --noconsole DOSBox_Cheat_Engine.py
 ```
 
 **For Modern Linux (Ubuntu 23.04+, Linux Mint, Debian 12+):**
@@ -70,7 +70,7 @@ Modern Linux distributions block global `pip` installs to protect the system. Us
 sudo apt install pipx
 pipx ensurepath
 pipx install pyinstaller
-pyinstaller --onefile --noconsole app.py
+pyinstaller --onefile --noconsole DOSBox_Cheat_Engine.py
 ```
 
 *(Tip: To build a highly compatible Linux binary, build it on an older distribution like Ubuntu 20.04).*
