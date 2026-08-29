@@ -2,8 +2,8 @@
 
 A modern, cross-platform, single-page web application to scan, edit, and freeze emulated memory in **DOSBox Staging (0.83+)**. Built as a direct response to the DOSBox Staging developer challenge!
 
-![Screenshot of DOSBox Cheat Engine](https://placehold.co/800x400/2a2b3d/00ffcc?text=Replace+this+with+a+screenshot+of+the+app)
-*(Place your screenshot here)*
+<img width="1317" height="689" alt="image" src="https://github.com/user-attachments/assets/3e205fb2-bcb7-4a05-b320-776d71e3713d" />
+
 
 ---
 
