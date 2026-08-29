@@ -2,7 +2,8 @@
 
 A modern, cross-platform, single-page web application to scan, edit, and freeze emulated memory in **DOSBox Staging (0.83+)**. Built as a direct response to the DOSBox Staging developer challenge!
 
-*(Place your screenshot here)*
+<!-- *(Place your screenshot here)* -->
+
 <img width="1317" height="689" alt="image" src="https://github.com/user-attachments/assets/3e205fb2-bcb7-4a05-b320-776d71e3713d" />
 
 
