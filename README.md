@@ -41,7 +41,7 @@ You have two options:
 * **Option A (Executables):** Simply download the pre-compiled binary for your OS (Windows/Linux) from the [Releases page](../../releases) and double-click it.
 * **Option B (Source code):** If you have Python installed, just run:
   ```bash
-  python app.py
+  python DOSBox_Cheat_Engine.py
   ```
 
 ### 3. Cheat!
