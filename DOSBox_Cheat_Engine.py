@@ -14,7 +14,7 @@ import socket
 # ⚠️ EDIT THE VERSION NUMBER HERE ⚠️ 
 # Αλλάζεις μόνο αυτόν τον αριθμό και ενημερώνεται αυτόματα παντού στην εφαρμογή!
 # ==============================================================================
-APP_VERSION = "v20"
+APP_VERSION = "v21"
 # ==============================================================================
 
 PORT = 5000
@@ -247,7 +247,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     </li>
                     <li><strong>DOSBox Configuration:</strong><br>
                         - You must enable the web server API in your DOSBox Staging configuration file (dosbox-staging.conf).<br>
-                        - Open your dosbox-staging.conf file, find the API or network settings, and enable the web server.<br>
+                        - Open the file, find the <code>[webserver]</code> section, and set <code>webserver_enabled = on</code>.<br>
                         - The default local address is usually http://127.0.0.1:8086.
                     </li>
                     <li><strong>Basic Usage:</strong><br>
