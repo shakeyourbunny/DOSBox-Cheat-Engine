@@ -34,7 +34,7 @@ Open your `dosbox-staging.conf` file, locate the API section, and enable the web
 [webserver]
 webserver_enabled = on
 ```
-*(By default, this runs on http://127.0.0.1:8086)*
+*(By default, this runs on http://127.0.0.1:8386)*
 
 ### 2. Run the Cheat Engine
 You have two options:

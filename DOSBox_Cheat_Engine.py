@@ -21,7 +21,7 @@ APP_VERSION = "v21"
 
 PORT = 5000
 MEM_SIZE = 0xA0000
-DOSBOX_API_DEFAULT = "http://127.0.0.1:8086/api/v1/memory"
+DOSBOX_API_DEFAULT = "http://127.0.0.1:8386/api/v1/memory"
 
 
 def dosbox_config_dirs():
@@ -226,7 +226,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     <div class="top-bar">
         <label>API URL:</label>
-        <input type="text" id="apiUrl" value="http://127.0.0.1:8086/api/v1/memory" style="width: 350px;">
+        <input type="text" id="apiUrl" value="http://127.0.0.1:8386/api/v1/memory" style="width: 350px;">
         <label>Token:</label>
         <input type="password" id="apiToken" value="" placeholder="auto (dosbox-automation)" style="width: 180px;">
         <label>Type:</label>
@@ -321,7 +321,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     <li><strong>DOSBox Configuration:</strong><br>
                         - You must enable the web server API in your DOSBox Staging configuration file (dosbox-staging.conf).<br>
                         - Open the file, find the <code>[webserver]</code> section, and set <code>webserver_enabled = on</code>.<br>
-                        - The default local address is usually http://127.0.0.1:8086.
+                        - The default local address is usually http://127.0.0.1:8386.
                     </li>
                     <li><strong>Basic Usage:</strong><br>
                         - Search for a value using 'First Scan'.<br>
