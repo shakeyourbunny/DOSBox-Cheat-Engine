@@ -3,12 +3,14 @@ import http.server
 import json
 import os
 import errno
+import urllib.error
 import urllib.request
 import urllib.parse
 import threading
 import time
 import webbrowser
 import socket
+import sys
 
 # ==============================================================================
 # ⚠️ EDIT THE VERSION NUMBER HERE ⚠️ 
@@ -20,6 +22,75 @@ APP_VERSION = "v21"
 PORT = 5000
 MEM_SIZE = 0xA0000
 DOSBOX_API_DEFAULT = "http://127.0.0.1:8086/api/v1/memory"
+
+
+def dosbox_config_dirs():
+    """Where dosbox-automation keeps its config dir on each platform.
+
+    XDG_CONFIG_HOME wins everywhere, then the platform default.
+    """
+    dirs = []
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        dirs.append(os.path.join(xdg, "dosbox-automation"))
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            dirs.append(os.path.join(local, "dosbox-automation"))
+    elif sys.platform == "darwin":
+        dirs.append(os.path.expanduser("~/Library/Preferences/dosbox-automation"))
+    else:
+        dirs.append(os.path.expanduser("~/.config/dosbox-automation"))
+    return dirs
+
+
+def dosbox_token(explicit=""):
+    """API token for dosbox-automation, which requires one on every request.
+
+    Order: the token typed in the UI, DOSBOX_API_TOKEN in the environment,
+    then the token file dosbox-automation writes when webserver_token_file
+    is on. Empty string means no token, which is what DOSBox Staging wants.
+    """
+    if explicit:
+        return explicit.strip()
+    env_token = os.environ.get("DOSBOX_API_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    for config_dir in dosbox_config_dirs():
+        token_path = os.path.join(config_dir, "webserver", "api_token")
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                token = f.read().strip()
+        except OSError:
+            continue
+        if token:
+            return token
+    return ""
+
+
+def dosbox_request(url, token="", data=None, method=None):
+    req = urllib.request.Request(url, data=data, method=method)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    return req
+
+
+def dosbox_freeze_url(memory_url):
+    """dosbox-automation keeps freezes next to the memory routes."""
+    return f"{memory_url.rstrip('/')}/freeze"
+
+
+def dosbox_has_native_freeze(memory_url, token):
+    """True when the emulator re-applies frozen values itself.
+
+    DOSBox Staging answers 404 here, so the browser keeps its own loop.
+    """
+    try:
+        req = dosbox_request(dosbox_freeze_url(memory_url), token)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
 
 # ================== FRONTEND UI (HTML/CSS/JS) ==================
 INDEX_HTML = """<!DOCTYPE html>
@@ -156,6 +227,8 @@ INDEX_HTML = """<!DOCTYPE html>
     <div class="top-bar">
         <label>API URL:</label>
         <input type="text" id="apiUrl" value="http://127.0.0.1:8086/api/v1/memory" style="width: 350px;">
+        <label>Token:</label>
+        <input type="password" id="apiToken" value="" placeholder="auto (dosbox-automation)" style="width: 180px;">
         <label>Type:</label>
         <select id="dataType">
             <option value="1">8-bit (uint8)</option>
@@ -339,8 +412,13 @@ INDEX_HTML = """<!DOCTYPE html>
         return document.getElementById('apiUrl').value;
     }
 
+    function getApiQuery() {
+        const token = document.getElementById('apiToken').value;
+        return `url=${encodeURIComponent(getStatusUrl())}&token=${encodeURIComponent(token)}`;
+    }
+
     async function fetchMemory() {
-        const url = `/api/mem?url=${encodeURIComponent(getStatusUrl())}`;
+        const url = `/api/mem?${getApiQuery()}`;
         let resp;
         try { resp = await fetch(url); } catch(e) { throw new Error("API_ERROR"); }
         if (!resp.ok) throw new Error("API_ERROR");
@@ -350,7 +428,7 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     async function writeMemory(offset, val, size) {
-        const url = `/api/mem/${hex(offset)}?url=${encodeURIComponent(getStatusUrl())}`;
+        const url = `/api/mem/${hex(offset)}?${getApiQuery()}`;
         let payload;
         if (size === 1) payload = new Uint8Array([val & 0xFF]);
         else if (size === 2) { let b = new ArrayBuffer(2); new DataView(b).setUint16(0, val, true); payload = new Uint8Array(b); }
@@ -360,6 +438,46 @@ INDEX_HTML = """<!DOCTYPE html>
     }
 
     function hex(n) { return '0x' + n.toString(16).toUpperCase(); }
+
+    // --- NATIVE FREEZE (dosbox-automation re-applies frozen values every frame;
+    //     DOSBox Staging has no such route, so the 150 ms loop below stays) ---
+    let nativeFreeze = null;   // null = not probed yet for the current API URL
+    let probedUrl = '';
+
+    async function detectCaps() {
+        const apiUrl = getStatusUrl();
+        if (nativeFreeze !== null && probedUrl === apiUrl) return nativeFreeze;
+        try {
+            const resp = await fetch(`/api/caps?${getApiQuery()}`);
+            const caps = await resp.json();
+            nativeFreeze = Boolean(caps.native_freeze);
+        } catch(e) { nativeFreeze = false; }
+        probedUrl = apiUrl;
+        return nativeFreeze;
+    }
+
+    async function freezeNative(c) {
+        await fetch(`/api/freeze?${getApiQuery()}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({address: c.offset, value: c.value, width: c.size})
+        });
+    }
+
+    async function unfreezeNative(c) {
+        await fetch(`/api/freeze?${getApiQuery()}`, {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({address: c.offset})
+        });
+    }
+
+    async function syncNativeFreezes() {
+        if (!(await detectCaps())) return;
+        for (const c of cheatItems) {
+            try { if (c.frozen) await freezeNative(c); } catch(e) {}
+        }
+    }
 
     function handleRowSelection(event, tr, tbody) {
         if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
@@ -509,10 +627,17 @@ INDEX_HTML = """<!DOCTYPE html>
         return Array.from(cheatBody.querySelectorAll('tr.selected')).map(tr => tr.dataset.id);
     }
 
-    function toggleFreeze() {
+    async function toggleFreeze() {
         const ids = getSelectedCheats();
         if(ids.length === 0) return;
-        cheatItems.forEach(c => { if (ids.includes(c.id)) c.frozen = !c.frozen; });
+        const native = await detectCaps();
+        for (const c of cheatItems) {
+            if (!ids.includes(c.id)) continue;
+            c.frozen = !c.frozen;
+            if (native) {
+                try { await (c.frozen ? freezeNative(c) : unfreezeNative(c)); } catch(e) {}
+            }
+        }
         renderCheatTable();
     }
 
@@ -537,6 +662,9 @@ INDEX_HTML = """<!DOCTYPE html>
             if (!isNaN(newVal)) {
                 c.value = newVal;
                 try { await writeMemory(c.offset, newVal, c.size); } catch(e) { alert("Write error"); }
+                if (c.frozen && await detectCaps()) {
+                    try { await freezeNative(c); } catch(e) {}
+                }
                 renderCheatTable();
             }
         });
@@ -551,8 +679,14 @@ INDEX_HTML = """<!DOCTYPE html>
         const ids = getSelectedCheats();
         if(ids.length === 0) return;
         
-        openConfirmModal('Remove Cheat(s)', `Are you sure you want to remove ${ids.length} selected item(s)?`, () => {
+        openConfirmModal('Remove Cheat(s)', `Are you sure you want to remove ${ids.length} selected item(s)?`, async () => {
+            const removed = cheatItems.filter(c => ids.includes(c.id));
             cheatItems = cheatItems.filter(c => !ids.includes(c.id));
+            if (await detectCaps()) {
+                for (const c of removed) {
+                    try { if (c.frozen) await unfreezeNative(c); } catch(e) {}
+                }
+            }
             renderCheatTable();
         });
     }
@@ -599,6 +733,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         value: Number(c.value !== undefined ? c.value : 0)
                     }));
                     renderCheatTable();
+                    syncNativeFreezes();
                     statusBar.innerText = `Loaded ${cheatItems.length} cheats from file.`;
                 } else {
                     alert("Invalid file format: Not an array.");
@@ -631,13 +766,19 @@ INDEX_HTML = """<!DOCTYPE html>
                     if (tr) tr.children[4].innerText = v;
                 }
             });
-            if (statusBar.innerText.includes("Warning:")) statusBar.innerText = "Connected to DOSBox.";
+            if (statusBar.innerText.includes("Warning:")) {
+                statusBar.innerText = "Connected to DOSBox.";
+                // A restarted emulator has forgotten its freezes.
+                nativeFreeze = null;
+                syncNativeFreezes();
+            }
         } catch(e) {
             statusBar.innerText = "Warning: DOSBox connection lost.";
         }
     }, 1000);
 
     setInterval(async () => {
+        if (nativeFreeze) return;
         const frozen = cheatItems.filter(c => c.frozen);
         for (const c of frozen) {
             try { await writeMemory(c.offset, c.value, c.size); } catch(e) {}
@@ -661,7 +802,7 @@ class CheatServerHandler(http.server.BaseHTTPRequestHandler):
     
     def _send_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
 
     def do_OPTIONS(self):
@@ -683,8 +824,10 @@ class CheatServerHandler(http.server.BaseHTTPRequestHandler):
             
         elif path == '/api/mem':
             dosbox_url = query.get('url', [DOSBOX_API_DEFAULT])[0]
+            token = dosbox_token(query.get('token', [''])[0])
             try:
-                req = urllib.request.Request(f"{dosbox_url.rstrip('/')}/0/{hex(MEM_SIZE)}")
+                req = dosbox_request(f"{dosbox_url.rstrip('/')}/0/{hex(MEM_SIZE)}",
+                                     token)
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = resp.read()
                     self.send_response(200)
@@ -696,9 +839,53 @@ class CheatServerHandler(http.server.BaseHTTPRequestHandler):
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(str(e).encode('utf-8'))
+        elif path == '/api/caps':
+            dosbox_url = query.get('url', [DOSBOX_API_DEFAULT])[0]
+            token = dosbox_token(query.get('token', [''])[0])
+            caps = {"native_freeze": dosbox_has_native_freeze(dosbox_url, token)}
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(caps).encode('utf-8'))
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _forward_freeze(self, method):
+        """POST freezes an address in the emulator, DELETE releases it."""
+        parsed = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        if parsed.path != '/api/freeze':
+            self.send_response(404)
+            self.end_headers()
+            return
+        dosbox_url = query.get('url', [DOSBOX_API_DEFAULT])[0]
+        token = dosbox_token(query.get('token', [''])[0])
+        length = int(self.headers.get('Content-Length', 0))
+        data = self.rfile.read(length) if length else None
+        try:
+            req = dosbox_request(dosbox_freeze_url(dosbox_url), token,
+                                 data=data, method=method)
+            req.add_header('Content-Type', 'application/json')
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                self.send_response(resp.status)
+                self._send_cors_headers()
+                self.end_headers()
+        except urllib.error.HTTPError as e:
+            self.send_response(e.code)
+            self.end_headers()
+            self.wfile.write(e.read())
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode('utf-8'))
+
+    def do_POST(self):
+        self._forward_freeze('POST')
+
+    def do_DELETE(self):
+        self._forward_freeze('DELETE')
 
     def do_PUT(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -708,10 +895,12 @@ class CheatServerHandler(http.server.BaseHTTPRequestHandler):
         if path.startswith('/api/mem/'):
             offset = path.split('/api/mem/')[1]
             dosbox_url = query.get('url', [DOSBOX_API_DEFAULT])[0]
+            token = dosbox_token(query.get('token', [''])[0])
             length = int(self.headers.get('Content-Length', 0))
             data = self.rfile.read(length)
             try:
-                req = urllib.request.Request(f"{dosbox_url.rstrip('/')}/{offset}", data=data, method='PUT')
+                req = dosbox_request(f"{dosbox_url.rstrip('/')}/{offset}", token,
+                                     data=data, method='PUT')
                 req.add_header('Content-Type', 'application/octet-stream')
                 with urllib.request.urlopen(req, timeout=3) as resp:
                     self.send_response(resp.status)
